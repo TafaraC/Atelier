@@ -15,6 +15,7 @@ FIELDS = {
     "edge":"category direction description motivation public_perception visibility start end historical_state notes",
     "timeline":"description calendar unit origin spacing notes",
     "track":"description notes",
+    "entry":"start end notes",
 }
 VECTORS=("pos","size","rotation")
 
@@ -68,6 +69,11 @@ def edit_record(a):
                     data[k]=float(data[k] or (0 if k=="origin" else 20))
                     if not math.isfinite(data[k]) or (k!="origin" and data[k]<=0):raise ValueError("Invalid scale")
             if "colour" in data and not re.fullmatch("#[0-9a-fA-F]{6}",data["colour"]):raise ValueError("Use a colour such as #82927b.")
+            if r["kind"]=="entry":
+                data["start"]=float(data["start"])
+                data["end"]=float(data["end"])
+                if not all(math.isfinite(data[k]) for k in ("start","end")) or data["end"]<data["start"]:
+                    raise ValueError("Enter a finite interval with the end at or after the start.")
             if "points" in data:
                 import json
                 data["points"]=json.loads(data["points"])

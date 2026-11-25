@@ -185,6 +185,15 @@ def panel(app):
     def revoke():
         who=simpledialog.askstring("Revoke access","Collaborator account",parent=win)
         if who:request("revoke",lambda _:note.set("Access updated"),account=who,id=app.doc["id"])
+    automatic=tk.BooleanVar(value=app.store.setting("automatic_sync","off")=="on")
+    def schedule():
+        if not win.winfo_exists():return
+        if automatic.get() and token and not busy and baseline(app.doc["id"]) and app.grab_current() is None:
+            sync()
+        app.after(60000,schedule)
+    app.after(60000,schedule)
+    ttk.Checkbutton(frame,text="Sync every minute while signed in here",variable=automatic,
+        command=lambda:app.store.configure("automatic_sync","on" if automatic.get() else "off")).pack(anchor="w",pady=5)
     def signout():
         def done(_):
             nonlocal token

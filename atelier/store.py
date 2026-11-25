@@ -3,6 +3,8 @@ import copy
 import hashlib
 import io
 import json
+import math
+import re
 import os
 import sqlite3
 import uuid
@@ -35,6 +37,13 @@ def validate(doc):
     rows = doc["records"]
     if rows[doc["id"]]["kind"] != "project":
         raise ValueError("Missing project header")
+    expected = {"object": "level", "layer": "level", "edge": "graph", "node": "graph",
+                "track": "timeline", "entry": "timeline"}
+    def requires(row, field, allowed):
+        target = rows.get(row.get(field), {})
+        if target.get("kind") not in allowed:
+            raise ValueError(f"Invalid {field} for {row['name']}")
+        return target
     for key, row in rows.items():
         if row["id"] != key or row["kind"] not in KINDS or not isinstance(row["name"], str):
             raise ValueError("Invalid project record")
@@ -45,12 +54,34 @@ def validate(doc):
             raise ValueError("Missing referenced record")
         if row["kind"] == "level" and row.get("dimension") not in ("2D", "3D"):
             raise ValueError("Invalid level type")
-        if row["kind"] == "object":
+        kind = row["kind"]
+        if kind in expected:
+            requires(row, "parent", {expected[kind]})
+        if kind == "node":
+            requires(row, "entity", {"character", "faction"})
+            if len(row.get("pos", [])) != 2 or not all(math.isfinite(n) for n in row["pos"]):
+                raise ValueError("Invalid node position")
+        if kind == "edge":
+            for field in ("source", "target"):
+                requires(row, field, {"character", "faction"})
+        if kind == "entry":
+            requires(row, "entity", {"event", "era"})
+            track = requires(row, "track", {"track"})
+            if track["parent"] != row["parent"] or not all(math.isfinite(row[k]) for k in ("start","end")) or row["end"] < row["start"]:
+                raise ValueError("Invalid timeline placement")
+        if kind == "asset" and not re.fullmatch("[a-f0-9]{64}", row.get("hash", "")):
+            raise ValueError("Invalid image hash")
+        if kind == "object":
+            if requires(row, "layer", {"layer"})["parent"] != row["parent"]:
+                raise ValueError("Layer belongs to another level")
+            if row.get("shape") == "Image":
+                requires(row, "asset", {"asset"})
+            if not re.fullmatch("#[a-fA-F0-9]{6}", row.get("colour", "")):
+                raise ValueError("Invalid object colour")
             level = rows[row["parent"]]
             if level["kind"] != "level" or row["dimension"] != level["dimension"]:
                 raise ValueError("Geometry does not match level")
             count = 3 if level["dimension"] == "3D" else 2
-            import math
             for point in [row["pos"], row["size"], row["rotation"], *row.get("points", [])]:
                 if len(point) != count or not all(isinstance(v, (float, int)) and math.isfinite(v) for v in point):
                     raise ValueError("Invalid geometry")
@@ -121,6 +152,9 @@ class Store:
             archive.writestr("project.json", json.dumps(doc, ensure_ascii=False))
             for digest in sorted({r["hash"] for r in doc["records"].values() if r["kind"] == "asset"}):
                 archive.writestr("assets/" + digest, self.blob(digest))
+        with zipfile.ZipFile(stream) as archive:
+            if sum(i.file_size for i in archive.infolist()) > LIMIT:
+                raise ValueError("Project exceeds the 64 MiB archive limit")
         return stream.getvalue()
 
     def unpack(self, data):

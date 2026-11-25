@@ -97,7 +97,7 @@ class Studio(tk.Tk):
              ("Import archive…",self.import_file),("Export archive…",self.export),("Export JSON…",lambda:self.export(True))])
         menu("Create",[("Level…",self.new_level),("Drawing layer…",self.new_layer)]+
              [(k.title()+"…",lambda k=k:self.new_record(k)) for k in ("graph","character","faction","timeline","event","era","lore")])
-        menu("Edit",[("Undo",self.undo),("Redo",lambda:self.undo(True)),("Properties…",self.edit),("Link record…",self.link)])
+        menu("Edit",[("Undo",self.undo),("Redo",lambda:self.undo(True)),("Properties…",self.edit),("Link record…",self.link),("Duplicate placement",self.duplicate_placement),("Frame selection",self.frame_selection)])
         menu("Collaboration",[("Open sync panel…",self.sync_panel)])
         themes=menu("Appearance",[])
         for v in ("System","Light","Dark"):
@@ -112,6 +112,8 @@ class Studio(tk.Tk):
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER,r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as k:
                     dark=not winreg.QueryValueEx(k,"AppsUseLightTheme")[0]
             except OSError:pass
+        if getattr(self,"_palette_state",None)==(theme,dark):return
+        self._palette_state=(theme,dark)
         self.paper,self.ink,self.grid,panel,accent=(
             ("#242722","#ece8df","#363c34","#353930","#637256") if dark else
             ("#f2ede2","#33392f","#dfd8c9","#e6dfd1","#c2cbae"))
@@ -317,6 +319,25 @@ class Studio(tk.Tk):
         ttk.Checkbutton(self.toolbar,text="Snap",variable=self.snap).pack(side="left")
         ttk.Button(self.toolbar,text="Finish route",command=self.canvas.finish).pack(side="left")
 
+    def duplicate_placement(self):
+        row=self.rows.get(self.selected,{})
+        if row.get("kind")!="object" or self.locked(self.selected):return
+        from .store import uid
+        duplicate=copy.deepcopy(row)
+        duplicate["id"]=uid()
+        duplicate["name"]+=" (copy)"
+        duplicate["pos"][0]+=self.grid_size()
+        self.add(duplicate)
+
+    def frame_selection(self):
+        row=self.rows.get(self.selected,{})
+        if "pos" not in row:return
+        c=self.canvas
+        x,y=c.cam.screen(row["pos"])
+        c.cam.center[0]+=c.winfo_width()/2-x
+        c.cam.center[1]+=c.winfo_height()/2-y
+        c.draw()
+
     def edit(self):
         from .properties import edit_record
         edit_record(self)
@@ -329,6 +350,9 @@ class Studio(tk.Tk):
             extra={r["id"] for r in self.rows.values() if any(r.get(k) in pending for k in ("parent","source","target","entity","layer","asset","track"))}
             if extra<=pending:break
             pending|=extra
+        if self.rows[key]["kind"]=="layer" and sum(r.get("kind")=="layer" and r.get("parent")==self.active for r in self.rows.values())<=1:
+            messagebox.showinfo("Layer","Keep at least one drawing layer in this level.",parent=self)
+            return
         if not messagebox.askyesno("Remove records",f"Remove {len(pending)} record(s) and clear their references? Undo is available.",parent=self):return
         def apply():
             for id_ in pending:del self.rows[id_]
