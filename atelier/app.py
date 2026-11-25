@@ -301,6 +301,8 @@ class Studio(tk.Tk):
         if self.board().get("kind")!="level":
             self.narrative_tools()
             return
+        from .contents import show_contents
+        ttk.Button(self.toolbar,text="Level contents",command=lambda:show_contents(self)).pack(side="right")
         choices=BLOCK if self.canvas.dimension()=="3D" else PLAN
         def combo(items,current,callback):
             widget=ttk.Combobox(self.toolbar,values=items,width=12,state="readonly")
